@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fractal Launcher</title>
+    <style>
+        body { background-color: #1e1e1e; color: white; font-family: sans-serif; text-align: center; padding-top: 50px; }
+        .status { font-size: 20px; color: #00ff00; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Launching Fractal System...</h1>
+    <p id="msg">Please allow the browser to open the application.</p>
+
+    <script>
+        // 1. Get the parameters from the URL (e.g. ?data=SPY/5m/1/3)
+        const urlParams = new URLSearchParams(window.location.search);
+        const data = urlParams.get('data');
+
+        if (data) {
+            // 2. Construct your custom protocol link
+            const target = "fractal://" + data;
+            
+            // 3. Redirect the browser to open your app
+            window.location.href = target;
+            
+            // Optional: Close the tab after a few seconds (some browsers block this)
+            document.getElementById("msg").innerText = "Opening: " + data;
+            setTimeout(() => { window.close(); }, 3000);
+        } else {
+            document.getElementById("msg").innerText = "Error: No data provided in link.";
+            document.getElementById("msg").style.color = "red";
+        }
+    </script>
+</body>
+</html>
