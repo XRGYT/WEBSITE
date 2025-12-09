@@ -273,7 +273,6 @@
             }
         }
 
-        /* Responsive tweak */
         @media (max-width: 480px) {
             .panel {
                 padding: 22px 18px 18px;
@@ -335,7 +334,6 @@
 
 <script>
     // --- URL handling & launch logic ---------------------------------------
-
     (function () {
         const msgEl = document.getElementById("msg");
         const payloadEl = document.getElementById("payload");
@@ -381,16 +379,15 @@
             statusText.textContent = "idle";
         }
     })();
+</script>
 
-    // --- Lorenz attractor background ---------------------------------------
-
+<script>
+    // --- Lorenz attractor background (3D rotation + live integration) -------
     (function () {
         const canvas = document.getElementById("lorenz");
         const ctx = canvas.getContext("2d");
 
         let width, height, centerX, centerY;
-        let points = [];
-        let angle = 0;
 
         function resize() {
             const dpr = window.devicePixelRatio || 1;
@@ -405,17 +402,22 @@
         window.addEventListener("resize", resize);
         resize();
 
-        function generateLorenz() {
-            const sigma = 10;
-            const rho = 28;
-            const beta = 8 / 3;
-            const dt = 0.008;
+        // Lorenz parameters
+        const sigma = 10;
+        const rho = 28;
+        const beta = 8 / 3;
+        const dt = 0.015; // integration step
 
-            let x = 0.01, y = 0, z = 0;
-            const maxPoints = 6000;
-            points = [];
+        let x = 0.01, y = 0, z = 0;
+        const MAX_POINTS = 4000;
+        const points = [];
 
-            for (let i = 0; i < maxPoints; i++) {
+        // Camera rotation angles
+        let angleY = 0;              // orbit around vertical axis
+        const angleXFixed = 0.6;     // constant tilt
+
+        function stepSystem(steps) {
+            for (let i = 0; i < steps; i++) {
                 const dx = sigma * (y - x);
                 const dy = x * (rho - z) - y;
                 const dz = x * y - beta * z;
@@ -425,23 +427,67 @@
                 z += dz * dt;
 
                 points.push({ x, y, z });
+                if (points.length > MAX_POINTS) points.shift();
             }
         }
 
-        generateLorenz();
+        function computeBounds() {
+            if (!points.length) return null;
+
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            let minZ = Infinity, maxZ = -Infinity;
+
+            for (let i = 0; i < points.length; i++) {
+                const p = points[i];
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+                if (p.z < minZ) minZ = p.z;
+                if (p.z > maxZ) maxZ = p.z;
+            }
+
+            return { minX, maxX, minY, maxY, minZ, maxZ };
+        }
+
+        // Pre-fill some trajectory so it's not empty on load
+        stepSystem(2000);
 
         function draw() {
-            // Fade previous frame slightly for motion trails
-            ctx.fillStyle = "rgba(2, 3, 10, 0.2)";
+            // Advance system slowly in real time
+            stepSystem(1);
+
+            const bounds = computeBounds();
+
+            // Soft fade for motion trails
+            ctx.fillStyle = "rgba(2, 3, 10, 0.3)";
             ctx.fillRect(0, 0, width, height);
 
-            if (!points.length) return;
+            if (!bounds) {
+                requestAnimationFrame(draw);
+                return;
+            }
 
-            const baseScale = Math.min(width, height) * 0.04;
-            angle += 0.0025;
+            const rangeX = bounds.maxX - bounds.minX || 1;
+            const rangeY = bounds.maxY - bounds.minY || 1;
+            const rangeZ = bounds.maxZ - bounds.minZ || 1;
+            const maxRange = Math.max(rangeX, rangeY, rangeZ);
 
-            const cosA = Math.cos(angle);
-            const sinA = Math.sin(angle);
+            // Scale so it always fits nicely inside the viewport with padding
+            const scale = (Math.min(width, height) * 0.8) / maxRange;
+
+            const cxLor = (bounds.minX + bounds.maxX) / 2;
+            const cyLor = (bounds.minY + bounds.maxY) / 2;
+            const czLor = (bounds.minZ + bounds.maxZ) / 2;
+
+            // Update camera orbit
+            angleY += 0.0035; // adjust for faster/slower orbit
+            const cosY = Math.cos(angleY);
+            const sinY = Math.sin(angleY);
+
+            const cosX = Math.cos(angleXFixed);
+            const sinX = Math.sin(angleXFixed);
 
             ctx.lineWidth = 1;
             ctx.lineJoin = "round";
@@ -452,26 +498,35 @@
             for (let i = 0; i < points.length; i++) {
                 const p = points[i];
 
-                // Rotate around Y axis
-                const x = p.x * cosA + p.z * sinA;
-                const y = p.y;
-                const z = -p.x * sinA + p.z * cosA;
+                // Center Lorenz coordinates
+                let x0 = p.x - cxLor;
+                let y0 = p.y - cyLor;
+                let z0 = p.z - czLor;
 
-                const fov = 60;
-                const depth = fov + z;
-                const scale = baseScale * (fov / depth);
+                // Rotate around Y axis (orbit left/right)
+                const x1 = x0 * cosY + z0 * sinY;
+                const z1 = -x0 * sinY + z0 * cosY;
 
-                const px = centerX + x * scale;
-                const py = centerY + y * scale * 0.7; // slight vertical compression
+                // Rotate around X axis (tilt up/down)
+                const y1 = y0 * cosX - z1 * sinX;
+                const z2 = y0 * sinX + z1 * cosX;
 
-                const t = i / points.length;
+                // Orthographic projection (X, Y); depth in z2 just for styling
+                const px = centerX + x1 * scale;
+                const py = centerY + y1 * scale;
 
-                // Neon-like gradient along trajectory (cyan -> magenta)
-                const r = 0 | (0 + 90 * t);
+                const t = i / (points.length - 1 || 1);
+
+                // Depth-based alpha for a bit of 3D feel
+                const depthFactor = 0.5 + 0.5 * (z2 / (maxRange * 0.7));
+                const clampedDepth = Math.max(0, Math.min(1, depthFactor));
+
+                const r = (0 + 90 * t) | 0;
                 const g = 200 + (55 * (1 - t));
                 const b = 255;
+                const alpha = (0.15 + 0.4 * t) * (0.4 + 0.6 * clampedDepth);
 
-                ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + "," + (0.12 + 0.35 * t) + ")";
+                ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
 
                 if (i === 0) {
                     ctx.moveTo(px, py);
@@ -481,6 +536,37 @@
             }
 
             ctx.stroke();
+
+            // Draw moving blue dot at the tip (same 3D rotation)
+            const last = points[points.length - 1];
+            if (last) {
+                let x0 = last.x - cxLor;
+                let y0 = last.y - cyLor;
+                let z0 = last.z - czLor;
+
+                const x1 = x0 * cosY + z0 * sinY;
+                const z1 = -x0 * sinY + z0 * cosY;
+                const y1 = y0 * cosX - z1 * sinX;
+
+                const px = centerX + x1 * scale;
+                const py = centerY + y1 * scale;
+
+                const coreRadius = 3;
+                const glowRadius = 12;
+
+                const gradient = ctx.createRadialGradient(px, py, 0, px, py, glowRadius);
+                gradient.addColorStop(0, "rgba(80, 200, 255, 1)");
+                gradient.addColorStop(1, "rgba(80, 200, 255, 0)");
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(px, py, glowRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = "#00aaff";
+                ctx.beginPath();
+                ctx.arc(px, py, coreRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
 
             requestAnimationFrame(draw);
         }
