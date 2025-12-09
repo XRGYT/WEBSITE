@@ -1,35 +1,492 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8" />
     <title>Fractal Launcher</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-        body { background-color: #1e1e1e; color: white; font-family: sans-serif; text-align: center; padding-top: 50px; }
-        .status { font-size: 20px; color: #00ff00; }
+        :root {
+            --bg: #02030a;
+            --bg-soft: rgba(5, 10, 25, 0.92);
+            --accent: #00f6ff;
+            --accent-soft: rgba(0, 246, 255, 0.35);
+            --accent2: #9b5cff;
+            --text: #e5f7ff;
+            --danger: #ff4b81;
+            --grid: rgba(255, 255, 255, 0.05);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Mono", "Roboto Mono", monospace;
+            background: radial-gradient(circle at top, #090d2b 0, #02030a 40%, #000 100%);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* Background canvas for Lorenz attractor */
+        canvas#lorenz {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            z-index: -2;
+        }
+
+        /* Subtle overlay scanlines / noise */
+        .overlay {
+            pointer-events: none;
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                to bottom,
+                rgba(255, 255, 255, 0.03) 0,
+                rgba(255, 255, 255, 0.03) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+            mix-blend-mode: soft-light;
+            opacity: 0.25;
+            z-index: -1;
+        }
+
+        .grid {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(to right, var(--grid) 1px, transparent 1px),
+                linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+            background-size: 80px 80px;
+            mix-blend-mode: soft-light;
+            opacity: 0.18;
+            z-index: -1;
+        }
+
+        .panel {
+            position: relative;
+            padding: 28px 32px 24px;
+            border-radius: 16px;
+            background: var(--bg-soft);
+            border: 1px solid rgba(0, 246, 255, 0.2);
+            box-shadow:
+                0 0 0 1px rgba(0, 0, 0, 0.5),
+                0 18px 45px rgba(0, 0, 0, 0.9),
+                0 0 40px rgba(0, 246, 255, 0.18);
+            max-width: 540px;
+            width: 90%;
+        }
+
+        .panel::before {
+            content: "";
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            background: linear-gradient(120deg, rgba(0, 246, 255, 0.7), rgba(155, 92, 255, 0.15), transparent 60%);
+            opacity: 0.45;
+            z-index: -1;
+            filter: blur(16px);
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 1.2rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            color: var(--accent);
+            text-shadow: 0 0 6px rgba(0, 246, 255, 0.7);
+            animation: glowPulse 1.8s ease-in-out infinite alternate;
+        }
+
+        h1 span.emoji {
+            font-size: 1.4rem;
+        }
+
+        .sub {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.24em;
+            opacity: 0.7;
+            margin-bottom: 18px;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+            font-size: 0.8rem;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(0, 246, 255, 0.3);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: #00ff9d;
+            box-shadow: 0 0 12px rgba(0, 255, 157, 0.9);
+            animation: dotPulse 1.1s infinite alternate;
+        }
+
+        #msg {
+            margin: 0 0 4px 0;
+            min-height: 1.4em;
+            font-family: "SF Mono", "Roboto Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.9rem;
+            color: var(--text);
+        }
+
+        .label {
+            font-size: 0.72rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            opacity: 0.57;
+            margin-top: 12px;
+            margin-bottom: 4px;
+        }
+
+        #payload {
+            font-family: "SF Mono", "Roboto Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.85rem;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 6px;
+            padding: 8px 10px;
+            border: 1px solid rgba(0, 246, 255, 0.2);
+            word-break: break-all;
+            white-space: pre-wrap;
+            max-height: 90px;
+            overflow: auto;
+        }
+
+        .accent {
+            color: var(--accent);
+        }
+
+        .hint {
+            margin-top: 12px;
+            font-size: 0.78rem;
+            opacity: 0.7;
+        }
+
+        .hint strong {
+            opacity: 0.95;
+        }
+
+        a#manualLink {
+            display: none;
+            margin-top: 10px;
+            font-size: 0.8rem;
+            text-decoration: none;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px dashed rgba(0, 246, 255, 0.5);
+            color: var(--accent);
+        }
+
+        a#manualLink:hover {
+            background: rgba(0, 246, 255, 0.06);
+        }
+
+        .loader {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid rgba(0, 246, 255, 0.18);
+            border-top-color: var(--accent);
+            animation: spin 0.9s linear infinite;
+            box-shadow: 0 0 10px rgba(0, 246, 255, 0.5);
+        }
+
+        .loader-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand {
+            font-size: 0.72rem;
+            opacity: 0.6;
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .brand span {
+            white-space: nowrap;
+        }
+
+        #msg.error {
+            color: var(--danger);
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes glowPulse {
+            0% {
+                text-shadow: 0 0 2px rgba(0, 246, 255, 0.4), 0 0 10px rgba(0, 246, 255, 0.1);
+            }
+            100% {
+                text-shadow: 0 0 8px rgba(0, 246, 255, 0.9), 0 0 24px rgba(0, 246, 255, 0.4);
+            }
+        }
+
+        @keyframes dotPulse {
+            0% {
+                transform: scale(0.9);
+                opacity: 0.7;
+            }
+            100% {
+                transform: scale(1.3);
+                opacity: 1;
+            }
+        }
+
+        /* Responsive tweak */
+        @media (max-width: 480px) {
+            .panel {
+                padding: 22px 18px 18px;
+            }
+
+            h1 {
+                font-size: 1.05rem;
+            }
+
+            .status-row {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .loader-wrap {
+                align-self: stretch;
+                justify-content: space-between;
+            }
+        }
     </style>
 </head>
 <body>
-    <h1>🚀 Launching Fractal System...</h1>
-    <p id="msg">Please allow the browser to open the application.</p>
+<canvas id="lorenz"></canvas>
+<div class="grid"></div>
+<div class="overlay"></div>
 
-    <script>
-        // 1. Get the parameters from the URL (e.g. ?data=SPY/5m/1/3)
+<div class="panel">
+    <h1><span class="emoji">🚀</span> Fractal System Launch</h1>
+    <div class="sub">Quantum payload bridge</div>
+
+    <div class="status-row">
+        <div class="status-pill">
+            <span class="status-dot"></span>
+            <span id="statusText">bridge online</span>
+        </div>
+        <div class="loader-wrap">
+            <div class="loader"></div>
+            <span style="font-size:0.78rem; opacity:0.7;">Awaiting protocol handshake…</span>
+        </div>
+    </div>
+
+    <p id="msg">Initializing...</p>
+
+    <div class="label">Payload</div>
+    <div id="payload">–</div>
+
+    <a id="manualLink" href="#">Launch manually</a>
+
+    <p class="hint">
+        If your browser prompts you to <strong>open Fractal</strong>, confirm to continue.
+        If nothing happens, use the manual launch link above.
+    </p>
+
+    <div class="brand">
+        <span>Channel: <span class="accent">fractal://</span></span>
+        <span>Session ID: <span id="sessionId"></span></span>
+    </div>
+</div>
+
+<script>
+    // --- URL handling & launch logic ---------------------------------------
+
+    (function () {
+        const msgEl = document.getElementById("msg");
+        const payloadEl = document.getElementById("payload");
+        const manualLink = document.getElementById("manualLink");
+        const statusText = document.getElementById("statusText");
+        const sessionIdEl = document.getElementById("sessionId");
+
+        // Simple pseudo-session ID for vibes only
+        sessionIdEl.textContent = Math.random().toString(16).slice(2, 10).toUpperCase();
+
         const urlParams = new URLSearchParams(window.location.search);
-        const data = urlParams.get('data');
+        const data = urlParams.get("data");
 
         if (data) {
-            // 2. Construct your custom protocol link
             const target = "fractal://" + data;
-            
-            // 3. Redirect the browser to open your app
-            window.location.href = target;
-            
-            // Optional: Close the tab after a few seconds (some browsers block this)
-            document.getElementById("msg").innerText = "Opening: " + data;
-            setTimeout(() => { window.close(); }, 3000);
+
+            payloadEl.textContent = data;
+            manualLink.href = target;
+            manualLink.style.display = "inline-flex";
+
+            msgEl.innerHTML = 'Routing payload: <span class="accent">' + data + "</span>";
+            statusText.textContent = "launching";
+
+            // Small delay so user can see the UI before redirect
+            setTimeout(() => {
+                try {
+                    window.location.href = target;
+                } catch (e) {
+                    msgEl.textContent = "Protocol error while opening: " + target;
+                    msgEl.classList.add("error");
+                    statusText.textContent = "error";
+                }
+            }, 600);
+
+            // Optional: try to close the bridge tab after a few seconds
+            setTimeout(() => {
+                window.close();
+            }, 4000);
         } else {
-            document.getElementById("msg").innerText = "Error: No data provided in link.";
-            document.getElementById("msg").style.color = "red";
+            msgEl.textContent = "Error: No data payload provided in link.";
+            msgEl.classList.add("error");
+            payloadEl.textContent = "∅";
+            statusText.textContent = "idle";
         }
-    </script>
+    })();
+
+    // --- Lorenz attractor background ---------------------------------------
+
+    (function () {
+        const canvas = document.getElementById("lorenz");
+        const ctx = canvas.getContext("2d");
+
+        let width, height, centerX, centerY;
+        let points = [];
+        let angle = 0;
+
+        function resize() {
+            const dpr = window.devicePixelRatio || 1;
+            width = canvas.clientWidth = window.innerWidth;
+            height = canvas.clientHeight = window.innerHeight;
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+        window.addEventListener("resize", resize);
+        resize();
+
+        function generateLorenz() {
+            const sigma = 10;
+            const rho = 28;
+            const beta = 8 / 3;
+            const dt = 0.008;
+
+            let x = 0.01, y = 0, z = 0;
+            const maxPoints = 6000;
+            points = [];
+
+            for (let i = 0; i < maxPoints; i++) {
+                const dx = sigma * (y - x);
+                const dy = x * (rho - z) - y;
+                const dz = x * y - beta * z;
+
+                x += dx * dt;
+                y += dy * dt;
+                z += dz * dt;
+
+                points.push({ x, y, z });
+            }
+        }
+
+        generateLorenz();
+
+        function draw() {
+            // Fade previous frame slightly for motion trails
+            ctx.fillStyle = "rgba(2, 3, 10, 0.2)";
+            ctx.fillRect(0, 0, width, height);
+
+            if (!points.length) return;
+
+            const baseScale = Math.min(width, height) * 0.04;
+            angle += 0.0025;
+
+            const cosA = Math.cos(angle);
+            const sinA = Math.sin(angle);
+
+            ctx.lineWidth = 1;
+            ctx.lineJoin = "round";
+            ctx.lineCap = "round";
+
+            ctx.beginPath();
+
+            for (let i = 0; i < points.length; i++) {
+                const p = points[i];
+
+                // Rotate around Y axis
+                const x = p.x * cosA + p.z * sinA;
+                const y = p.y;
+                const z = -p.x * sinA + p.z * cosA;
+
+                const fov = 60;
+                const depth = fov + z;
+                const scale = baseScale * (fov / depth);
+
+                const px = centerX + x * scale;
+                const py = centerY + y * scale * 0.7; // slight vertical compression
+
+                const t = i / points.length;
+
+                // Neon-like gradient along trajectory (cyan -> magenta)
+                const r = 0 | (0 + 90 * t);
+                const g = 200 + (55 * (1 - t));
+                const b = 255;
+
+                ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + "," + (0.12 + 0.35 * t) + ")";
+
+                if (i === 0) {
+                    ctx.moveTo(px, py);
+                } else {
+                    ctx.lineTo(px, py);
+                }
+            }
+
+            ctx.stroke();
+
+            requestAnimationFrame(draw);
+        }
+
+        draw();
+    })();
+</script>
 </body>
 </html>
